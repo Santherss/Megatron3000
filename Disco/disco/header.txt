@@ -1,0 +1,5 @@
+Platos: 2
+Caras por plato: 2
+Pistas por cara: 10
+Sectores por pista: 16
+Tamaño sector: 512
