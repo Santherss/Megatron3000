@@ -2,18 +2,18 @@
 #define DISK_CONSTANTS_H
 
 #include <cstdint>
+constexpr int MAX_PISTAS = 10;
+constexpr int MAX_PLATOS = 2;
+constexpr int MAX_CARAS = 2;
+constexpr int MAX_SECTORES = 16;
 
-#define MAX_PISTAS 10
-#define MAX_PLATOS 2
-#define MAX_CARAS 2
-#define MAX_SECTORES 16 
+constexpr int SECTOR_SIZE = 512;
+constexpr int PAGE_SIZE = 2048;
+constexpr int SECTORS_PER_PAGE = 4;
 
+constexpr int HOUSING_RECORD_SIZE = 64;
+constexpr int TITANIC_RECORD_SIZE = 128;
 
-#define SECTOR_SIZE 512
-#define HOUSING_RECORD_SIZE 64
-#define TITANIC_RECORD_SIZE 128
-#define PAGE_SIZE 2048
-#define SECTORS_PER_PAGE 4
 
 struct CabeceraFija {
     uint16_t num_registros;
@@ -24,13 +24,10 @@ struct CabeceraFija {
 
 struct CabeceraVariable {
     uint16_t num_registros;
-    uint16_t offset_libre;      // Donde empieza el espacio libre para datos
-    uint16_t offset_slots;      // Donde empieza la tabla de slots (crece hacia arriba)
+    uint16_t offset_libre;          
+    uint16_t offset_slots;          
     uint16_t slots_count;       // Número actual de slots
-    // Los slots se almacenan en la página, no aquí fijo
-};
-
-
+    };
 
 
 #endif

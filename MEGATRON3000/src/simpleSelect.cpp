@@ -2,74 +2,24 @@
 #include "query.h"
 #include "disk_constants.h"
 #include "printer.h"
+#include "catalog.h"
+#include "bufferManager.h"
 #include <cstdio>
-#include <stdio.h>
-#include <string.h>
+#include <cstring>
 #include <iostream>
-#include <ctype.h>
-#include <cstdint>
+#include <cctype>
 
-bool leerSector(int plato, int cara, int pista, int sector, char* buffer) {
-    if (plato < 0 || plato >= MAX_PLATOS ||
-        cara < 0 || cara >= MAX_CARAS ||
-        pista < 0 || pista >= MAX_PISTAS ||
-        sector < 0 || sector >= MAX_SECTORES) {
-        fprintf(stderr, "Parámetros fuera de rango\n");
-        return false;
-    }
 
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/Plato%d/Cara%d/Pista%d/Sector%d",
-             DISK_ROOT, plato, cara, pista, sector);
-    
-    printf("Intentando abrir el archivo: %s\n", path);
-    FILE* f = fopen(path, "rb");
-    if (!f) {
-        perror("Error al abrir el archivo");
-        return false;
-    }
-
-    size_t leidos = fread(buffer, 1, SECTOR_SIZE, f);
-    fclose(f);
-
-    return leidos == SECTOR_SIZE;
-}
-
-bool leerPagina(int plato, int cara, int pistaBase, int paginaRelativa, char* bufferPagina) {
-    for (int i = 0; i < SECTORS_PER_PAGE; ++i) {
-        int sector = paginaRelativa * SECTORS_PER_PAGE + i;
-        if (sector >= 16) return false;
-        if (!leerSector(plato, cara, pistaBase, sector, bufferPagina + i * SECTOR_SIZE))
-            return false;
-    }
-    return true;
-}
-
-void trimStr(char* str) {
-    char* start = str;
-    while (*start && isspace(*start)) ++start;
-
-    char* end = start + strlen(start) - 1;
-    while (end > start && isspace(*end)) --end;
-    *(end + 1) = '\0';
-
-    if (start != str) memmove(str, start, strlen(start) + 1);
-}
-
-void handleSimpleSelect() {
-    std::cout << "[debug] entrando a ejecutarConsultaSimple()\n";
-
-    printf("%% SELECT QUERY (e.g. SELECT * FROM titanicG):\n> ");
+void handleSimpleSelect(BufferManager& buffer) {
+    printf("%% SELECT QUERY (e.g. SELECT * FROM tabla):\n> ");
     char input[256];
     if (!fgets(input, sizeof(input), stdin)) return;
-
-    size_t len = strlen(input);
-    if (len && input[len - 1] == '\n') input[len - 1] = '\0';
+    input[strcspn(input, "\n")] = '\0';  // quitar salto
 
     char* selectPtr = strstr(input, "SELECT");
     char* fromPtr = strstr(input, "FROM");
     if (!selectPtr || !fromPtr || fromPtr <= selectPtr) {
-        printf("consulta no válida\n");
+        printf("Consulta no válida\n");
         return;
     }
 
@@ -77,65 +27,29 @@ void handleSimpleSelect() {
     strncpy(camposStr, selectPtr + 6, fromPtr - (selectPtr + 6));
     strcpy(tablaName, fromPtr + 4);
 
-    char* p;
-    while ((p = strchr(camposStr, ' '))) memmove(p, p + 1, strlen(p));
-    while ((p = strchr(tablaName, ' '))) memmove(p, p + 1, strlen(p));
-    toLower(tablaName);
+    // Eliminar espacios
+    auto limpiar = [](char* str) {
+        char* p = str;
+        while ((p = strchr(str, ' '))) memmove(p, p + 1, strlen(p));
+    };
+    limpiar(camposStr);
+    limpiar(tablaName);
 
-    char buffer[SECTOR_SIZE];
-    char fieldNames[MAX_FIELDS][MAX_FIELD_LEN];
-    int numFields = 0;
-    char tipoTabla[16] = {0};
-
-    FILE* f = fopen(SCHEMA_PATH, "r");
-    if (!f) {
-        perror("Error al abrir schema.txt");
+    // Obtener esquema
+    RelSchema esquema;
+    char tempBuffer[1024];
+    if (!obtenerEsquema(tablaName, tempBuffer, sizeof(tempBuffer))) {
+        printf("Tabla no encontrada en el catálogo\n");
+        return;
+    }
+    if (!parsearLineaEsquema(tempBuffer, esquema)) {
+        printf("Error al parsear el esquema\n");
         return;
     }
 
-    bool encontrado = false;
-    while (fgets(buffer, sizeof(buffer), f)) {
-        char nombreTablaArchivo[128];
-        strncpy(nombreTablaArchivo, buffer, sizeof(nombreTablaArchivo));
-        char* hash = strchr(nombreTablaArchivo, '#');
-        if (hash) *hash = '\0';
-        toLower(nombreTablaArchivo);
-
-        if (strcmp(nombreTablaArchivo, tablaName) != 0)
-            continue;
-
-        // Línea encontrada
-        encontrado = true;
-        char* token = strtok(buffer, "#");
-        int fIndex = 0;
-        int tokenIndex = 0;
-        char* ultimoToken = NULL;
-
-        while ((token = strtok(NULL, "#")) && fIndex < MAX_FIELDS) {
-            trimStr(token);
-            ultimoToken = token;
-            if (tokenIndex % 2 == 0) {
-                strncpy(fieldNames[fIndex++], token, MAX_FIELD_LEN);
-            }
-            ++tokenIndex;
-        }
-
-        if (fIndex < 1 || !ultimoToken) {
-            printf("esquema malformado para tabla %s\n", tablaName);
-            fclose(f);
-            return;
-        }
-
-        numFields = fIndex;
-        strncpy(tipoTabla, ultimoToken, sizeof(tipoTabla));
-        break;
-    }
-    fclose(f);
-
-    if (!encontrado) {
-        printf("tabla no encontrada en esquema\n");
-        return;
-    }
+    bool esVariable = !esquema.longitudFija;
+    char (*fieldNames)[MAX_COL_LEN] = esquema.campos;
+    int numFields = esquema.numColumnas;
 
     bool showAll = (strcmp(camposStr, "*") == 0);
     int fieldIndices[MAX_FIELDS], numIndices = 0;
@@ -149,75 +63,66 @@ void handleSimpleSelect() {
             toLower(campos[i]);
             bool found = false;
             for (int j = 0; j < numFields; ++j) {
-                char tempField[MAX_FIELD_LEN];
-                strncpy(tempField, fieldNames[j], MAX_FIELD_LEN);
-                tempField[MAX_FIELD_LEN - 1] = '\0';
-                toLower(tempField);
-                if (strcmp(campos[i], tempField) == 0) {
+                char temp[MAX_FIELD_LEN];
+                strncpy(temp, fieldNames[j], MAX_FIELD_LEN);
+                temp[MAX_FIELD_LEN - 1] = '\0';
+                toLower(temp);
+                if (strcmp(campos[i], temp) == 0) {
                     fieldIndices[numIndices++] = j;
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                printf("campo no encontrado: %s\n", campos[i]);
+                printf("Campo no encontrado: %s\n", campos[i]);
                 return;
             }
         }
     }
 
-    int startCilindro = 0, endCilindro = 4;
-    if (strstr(tablaName, "housing")) {
-        startCilindro = 5;
-        endCilindro = 8;
-    }
+    // Mostrar cabeceras
+    char headers[16][MAX_FIELD_LEN];
+    for (int i = 0; i < numIndices; ++i)
+        strncpy(headers[i], fieldNames[fieldIndices[i]], MAX_FIELD_LEN);
+    printHeaders(headers, numIndices);
 
-    char bufferPagina[PAGE_SIZE];
-    char rows[MAX_ROWS][MAX_FIELDS][MAX_FIELD_LEN];
-    int numRows = 0;
+    int filas = 0;
 
-    int currentPlato = 0;
-    int currentCara = 0;
+    for (int pista = esquema.cilindroInicio; pista <= esquema.cilindroFin; ++pista) {
+        for (int cara = 0; cara < MAX_CARAS; ++cara) {
+            for (int plato = 0; plato < MAX_PLATOS; ++plato) {
+                for (int sector = 0; sector < MAX_SECTORES; sector += SECTORS_PER_PAGE) {
+                    IDPagina id = {plato, cara, pista, sector};
+                    BufferFrame* frame = buffer.fixPage(id, false);
+                    if (!frame) continue;
 
-    for (int currentPista = startCilindro; currentPista <= endCilindro; ++currentPista) {
-        int numPaginas = 64;
-        for (int pagina = 0; pagina < numPaginas && numRows < MAX_ROWS; ++pagina) {
+                    int headerSize = esVariable ? sizeof(CabeceraVariable) : sizeof(CabeceraFija);
+                    int contentSize = PAGE_SIZE - headerSize;
+                    char* contenido = frame->data + headerSize;
 
-            if (!leerPagina(currentPlato, currentCara, currentPista, pagina, bufferPagina)) continue;
+                    char tempContenido[PAGE_SIZE]; 
+                    memcpy(tempContenido, contenido, contentSize);
+                    tempContenido[contentSize] = '\0';  
+                   
+                    char* linea = strtok(tempContenido, "\n");
+                    while (linea) {
+                        if (linea[0] == '\0' || linea[0] == '%') {
+                            linea = strtok(NULL, "\n");
+                            continue;
+                        }
+                        char campos[MAX_FIELDS][MAX_FIELD_LEN];
+                        int n = split(linea, '#', campos);
+                        printRow(campos, numIndices, fieldIndices, false);
+                        filas++;
+                        linea = strtok(NULL, "\n");
+                    }
 
-            int headerSize = (strcmp(tipoTabla, "variable") == 0)
-                             ? sizeof(CabeceraVariable)
-                             : sizeof(CabeceraFija);
-            char* registros = bufferPagina + headerSize;
-            int i = 0, campo = 0, pos = 0;
-
-            while (i < PAGE_SIZE - headerSize && numRows < MAX_ROWS) {
-                if (registros[i] == '\0' || registros[i] == '\n') {
-                    rows[numRows][campo][pos] = '\0';
-                    numRows++;
-                    campo = 0;
-                    pos = 0;
-                    ++i;
-                    continue;
-                } else if (registros[i] == '#') {
-                    rows[numRows][campo][pos] = '\0';
-                    ++campo;
-                    pos = 0;
-                } else {
-                    if (pos < MAX_FIELD_LEN - 1)
-                        rows[numRows][campo][pos++] = registros[i];
+                    buffer.unfixPage(id, false);
                 }
-                ++i;
             }
         }
     }
 
-    if (numIndices == 1)
-        printTableField(fieldNames, rows, numRows, numFields, fieldIndices[0]);
-    else if (showAll)
-        printTableAll(fieldNames, rows, numRows, numFields);
-    else
-        printTableSelected(fieldNames, rows, numRows, fieldIndices, numIndices);
+    printf("Total de filas: %d\n", filas);
 }
-
 

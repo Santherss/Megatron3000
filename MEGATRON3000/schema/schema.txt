@@ -1,1 +1,2 @@
-titanicG#PassengerId#int#Survived#int#Pclass#int#Name#string#Sex#string#Age#int#SibSp#int#Parch#int#Ticket#string#Fare#float#Cabin#string#Embarked#string#variable
+titanicG#PassengerId#int#Survived#int#Pclass#int#Name#string#Sex#string#Age#int#SibSp#int#Parch#int#Ticket#string#Fare#float#Cabin#string#Embarked#string#fijo#0#4
+Housing#price#int#area#int#bedrooms#int#bathrooms#int#stories#int#mainroad#string#guestroom#string#basement#string#hotwaterheating#string#airconditioning#string#parking#int#prefarea#string#furnishingstatus#string#variable#5#9

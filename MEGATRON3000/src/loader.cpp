@@ -9,18 +9,40 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <cstdint>
+int csvs_cargados = 0;
 
-char DISK_ROOT[512];
+char DISK_ROOT[512]="";
 void setDiskRoot(const char* path) {
     strncpy(DISK_ROOT, path, sizeof(DISK_ROOT) - 1);
     DISK_ROOT[sizeof(DISK_ROOT) - 1] = '\0';
 }
 
-int obtenerCilindroParaRelacion(const char* nombre) {
-    if (strcmp(nombre, "titanicG") == 0) return 0;
-    if (strcmp(nombre, "Housing") == 0) return 5;
-    return 9;
+int contarRelaciones(const char* schemaPath) {
+    int count = 0;
+    int fd = open(schemaPath, O_RDONLY);
+    if (fd < 0) return 0;
+
+    char buffer[4096];
+    ssize_t bytesRead = read(fd, buffer, sizeof(buffer));
+    close(fd);
+
+    for (ssize_t i = 0; i < bytesRead; ++i) {
+        if (buffer[i] == '\n') count++;
+    }
+    return count;
 }
+
+void obtenerRangoCilindros(int& inicio, int& fin) {
+    int mitad = MAX_PISTAS / 2;
+    if (csvs_cargados == 0) {
+        inicio = 0;
+        fin = mitad - 1;
+    } else {
+        inicio = mitad;
+        fin = MAX_PISTAS - 1;
+    }
+}
+
 
 bool is_integer(const char* s) {
     if (*s == '-' || *s == '+') s++;
@@ -69,7 +91,9 @@ void inferirTipos(char tipos[][8], char* valores[], int num_cols) {
     }
 }
 
-void guardarEsquema(int out_schema, const char* nombre, char columnas[][MAX_COL_LEN], char tipos[][8], int num_cols, bool longitudFija) {
+void guardarEsquema(int out_schema, const char* nombre, char columnas[][MAX_COL_LEN], char tipos[][8], int num_cols, bool longitudFija, int cilindroInicio, int cilindroFin) {
+    char buffer[32];
+
     write(out_schema, nombre, strlen(nombre));
     for (int j = 0; j < num_cols; ++j) {
         write(out_schema, "#", 1);
@@ -77,12 +101,25 @@ void guardarEsquema(int out_schema, const char* nombre, char columnas[][MAX_COL_
         write(out_schema, "#", 1);
         write(out_schema, tipos[j], strlen(tipos[j]));
     }
+
     if(longitudFija)
-        write(out_schema, "#fijo",5);
+        write(out_schema, "#fijo", 5);
     else
-        write(out_schema, "#variable",9);
-    write(out_schema,"\n",1);
+        write(out_schema, "#variable", 9);
+
+    // Agrega "#inicio"
+    write(out_schema, "#", 1);
+    int len = sprintf(buffer, "%d", cilindroInicio);
+    write(out_schema, buffer, len);
+
+    // Agrega "#fin"
+    write(out_schema, "#", 1);
+    len = sprintf(buffer, "%d", cilindroFin);
+    write(out_schema, buffer, len);
+
+    write(out_schema, "\n", 1);
 }
+
 
 void extraerNombreBase(const char* path, char* nombre) {
     const char* p = strrchr(path, '/');
@@ -201,7 +238,6 @@ bool escribirEnPaginaFija(int cilindroInicio, const char* buffer, uint16_t tam_r
 }
 
 bool escribirEnPaginaVariable(int cilindroInicio, const char* buffer, size_t len) {
-
     for (int pista = cilindroInicio; pista < MAX_PISTAS; ++pista) {
         for (int plato = 0; plato < MAX_PLATOS; ++plato) {
             for (int cara = 0; cara < MAX_CARAS; ++cara) {
@@ -236,6 +272,19 @@ bool escribirEnPaginaVariable(int cilindroInicio, const char* buffer, size_t len
                         cab->offset_slots = PAGE_SIZE;
                     }
 
+                    // Alinear a sector para evitar cortar registros
+                    int sector_relativo = cab->offset_libre / SECTOR_SIZE;
+                    int pos_en_sector = cab->offset_libre % SECTOR_SIZE;
+                    int espacio_en_sector = SECTOR_SIZE - pos_en_sector;
+
+                    if (espacio_en_sector < (int)len) {
+                        // Mover al inicio del siguiente sector
+                        cab->offset_libre = (sector_relativo + 1) * SECTOR_SIZE;
+                        pos_en_sector = 0;
+                        espacio_en_sector = SECTOR_SIZE;
+                    }
+
+                    // Verificar si el registro completo y el slot caben en la página
                     if (cab->offset_libre + len <= cab->offset_slots - sizeof(uint16_t)) {
                         memcpy(pagina + cab->offset_libre, buffer, len);
 
@@ -270,10 +319,10 @@ bool escribirEnPaginaVariable(int cilindroInicio, const char* buffer, size_t len
 }
 
 
-bool escribirEnSector(const char* nombre, const char* linea, size_t len, bool longitudFija) {
-    int cilindro = obtenerCilindroParaRelacion(nombre);
-    if(longitudFija) return escribirEnPaginaFija(cilindro,linea,len);
-    else return escribirEnPaginaVariable(cilindro, linea, len);
+
+bool escribirEnSector(const char* linea, size_t len, bool longitudFija, int inicio) {
+    if(longitudFija) return escribirEnPaginaFija(inicio,linea,len);
+    else return escribirEnPaginaVariable(inicio, linea, len);
 }
 
 
@@ -294,6 +343,12 @@ bool loadCSV(const char* tsvPath, const char* schemaPath, bool longitudFija) {
     char tipos[MAX_COLUMNS][8];
     bool header_done = false, tipos_inferidos = false;
     int num_cols = 0;
+    int cilindroInicio, cilindroFin;
+
+    if(contarRelaciones(schemaPath)==1){
+        csvs_cargados++;
+    }
+    obtenerRangoCilindros(cilindroInicio, cilindroFin);
 
     while (true) {
         ssize_t bytesRead = read(fd, buffer, sizeof(buffer));
@@ -347,7 +402,7 @@ bool loadCSV(const char* tsvPath, const char* schemaPath, bool longitudFija) {
                         while (pos < tam_registro - 1) lineaSalida[pos++] = ' ';
                         lineaSalida[pos++] = '\n';
 
-                        if (!escribirEnSector(nombre, lineaSalida, tam_registro, longitudFija)) {
+                        if (!escribirEnSector(lineaSalida, tam_registro, longitudFija, cilindroInicio)) {
                             write(2, "Error escribiendo registro fijo\n", 32);
                             close(fd);
                             return false;
@@ -360,7 +415,7 @@ bool loadCSV(const char* tsvPath, const char* schemaPath, bool longitudFija) {
                             close(fd);
                             return false;
                         }
-                        if (!escribirEnSector(nombre, lineaSalida, pos, longitudFija)) {
+                        if (!escribirEnSector(lineaSalida, pos, longitudFija, cilindroInicio)) {
                             write(2, "Error escribiendo registro variable\n", 36);
                             close(fd);
                             return false;
@@ -378,6 +433,7 @@ bool loadCSV(const char* tsvPath, const char* schemaPath, bool longitudFija) {
     }
 
     close(fd);
+    csvs_cargados++;
     if (!yaExisteRelacion(schemaPath, nombre)) {
         int out_schema = open(schemaPath, O_RDWR | O_CREAT | O_APPEND, 0644);
         if (out_schema < 0) {
@@ -388,11 +444,12 @@ bool loadCSV(const char* tsvPath, const char* schemaPath, bool longitudFija) {
         lseek(out_schema, 0, SEEK_END);
 
                 // Escribir nueva relación
-        guardarEsquema(out_schema, nombre, columnas, tipos, num_cols, longitudFija);
+        guardarEsquema(out_schema, nombre, columnas, tipos, num_cols, longitudFija, cilindroInicio, cilindroFin);
         close(out_schema);
     }
 
-        return true;
+
+    return true;
 }
 
 

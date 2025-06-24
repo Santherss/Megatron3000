@@ -1,7 +1,7 @@
 #include "disco.h"
 
 int main() {
-    DiscoVirtual disco("/home/riki/Documents/BD_II/disco_test/Disco");
+    DiscoVirtual disco("disco_prueba");
     disco.mostrarMenu();
     return 0;
 }

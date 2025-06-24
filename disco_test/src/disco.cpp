@@ -125,6 +125,7 @@ void DiscoVirtual::mostrarMenu() {
         std::cout << "2. Modificar pistas y sectores en todos los platos\n";
         std::cout << "3. Eliminar plato\n";
         std::cout << "4. Mostrar capacidad del disco\n";
+        std::cout << "5. Mostra capacidad de bloque\n";
         std::cout << "0. Salir\n";
         std::cout << "--------------------------------------------------\n";
 
@@ -164,9 +165,9 @@ void DiscoVirtual::mostrarMenu() {
             std::cin >> sectores;
 
             guardarConfiguracion();
-            expandirDisco(0); // Solo modificar estructura sin agregar platos nuevos
-        }
-        else if (opcion == 3) {
+            expandirDisco(0); 
+
+        }else if (opcion == 3) {
             int num;
             std::cout << "Número de plato a eliminar: ";
             std::cin >> num;
@@ -183,6 +184,14 @@ void DiscoVirtual::mostrarMenu() {
                 std::cout << "Tamaño total del disco: " << calcularTamano() << " bytes\n";
             }
         }
+        else if (opcion == 5) {
+            int sectoresPorBloque;
+            std::cout << "Ingrese la cantidad de sectores por bloque: ";
+            std::cin >> sectoresPorBloque;
+            int tamanoBloque = sectoresPorBloque * TAMANO_SECTOR;
+            std::cout << "Tamaño del bloque: " << tamanoBloque << " bytes\n";
+}
+
 
     } while (opcion != 0);
 }

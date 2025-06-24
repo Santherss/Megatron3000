@@ -2,14 +2,13 @@
 #define LOADER_H
 
 #include <cstdint>
-#include <cstddef>  // Para size_t
+#include <cstddef>  
 #include <algorithm>
-#include <cstddef>  // Para size_t
+#include <cstddef>  
 #include <algorithm>
-// Para std::min
+#include "catalog.h"
 
-#define MAX_COLUMNS 64
-#define MAX_COL_LEN 64
+
 #define MAX_ROW_LEN 2048
 
 extern char DISK_ROOT[512];
@@ -26,5 +25,5 @@ bool yaExisteRelacion(const char* schemaPath, const char* nombre);
 
 int obtenerCilindroParaRelacion(const char* nombre);
 
-#endif // LOADER_H
+#endif 
 

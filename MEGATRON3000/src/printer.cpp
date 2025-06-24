@@ -1,4 +1,8 @@
+#include <stdio.h>
+#include <string.h>
 #include "printer.h"
+int lastColumnWidths[MAX_FIELDS];
+int lastNumCols = 0;
 
 void printSeparator(int numCols, const int* widths) {
     for (int i = 0; i < numCols; ++i) {
@@ -9,88 +13,27 @@ void printSeparator(int numCols, const int* widths) {
     printf("+\n");
 }
 
-void computeColumnWidths(const char headers[][MAX_FIELD_LEN],
-                         const char rows[][MAX_FIELDS][MAX_FIELD_LEN],
-                         int totalRows,
-                         const int* selectedIndices,
-                         int numSelected,
-                         int* widths) {
-    for (int i = 0; i < numSelected; ++i) {
-        int col = selectedIndices[i];
-        widths[i] = strlen(headers[col]);
-    }
+void printHeaders(const char headers[][MAX_FIELD_LEN], int numCols) {
+    int widths[MAX_FIELDS] = {0};
+    for (int i = 0; i < numCols; ++i)
+        widths[i] = strlen(headers[i]);
 
-    for (int r = 0; r < totalRows; ++r) {
-        for (int i = 0; i < numSelected; ++i) {
-            int col = selectedIndices[i];
-            int len = strlen(rows[r][col]);
-            if (len > widths[i]) widths[i] = len;
-        }
-    }
+    printSeparator(numCols, widths);
+    for (int i = 0; i < numCols; ++i)
+        printf("| %-*s ", widths[i], headers[i]);
+    printf("|\n");
+    printSeparator(numCols, widths);
+
+    // Guardar las longitudes para impresión de filas
+    memcpy(lastColumnWidths, widths, sizeof(int) * numCols);
+    lastNumCols = numCols;
 }
 
-void printTableSelected(const char headers[][MAX_FIELD_LEN],
-                        const char rows[][MAX_FIELDS][MAX_FIELD_LEN],
-                        int totalRows,
-                        const int* selectedIndices,
-                        int numSelected) {
-    int widths[MAX_FIELDS] = {0};
-    computeColumnWidths(headers, rows, totalRows, selectedIndices, numSelected, widths);
-
-    printSeparator(numSelected, widths);
-
-    for (int i = 0; i < numSelected; ++i) {
-        int col = selectedIndices[i];
-        printf("| %-*s ", widths[i], headers[col]);
+void printRow(const char campos[][MAX_FIELD_LEN], int numCols, const int* indices, bool selectAll) {
+    for (int i = 0; i < numCols; ++i) {
+        int idx = selectAll ? i : indices[i];
+        printf("| %-*s ", lastColumnWidths[i], campos[idx]);
     }
     printf("|\n");
-
-    printSeparator(numSelected, widths);
-
-    for (int r = 0; r < totalRows; ++r) {
-        for (int i = 0; i < numSelected; ++i) {
-            int col = selectedIndices[i];
-            printf("| %-*s ", widths[i], rows[r][col]);
-        }
-        printf("|\n");
-    }
-
-    printSeparator(numSelected, widths);
-}
-
-void printTableAll(const char headers[][MAX_FIELD_LEN],
-                   const char rows[][MAX_FIELDS][MAX_FIELD_LEN],
-                   int totalRows,
-                   int totalCols) {
-    int selectedIndices[MAX_FIELDS];
-    for (int i = 0; i < totalCols; ++i) selectedIndices[i] = i;
-
-    printTableSelected(headers, rows, totalRows, selectedIndices, totalCols);
-}
-
-void printTableField(const char headers[][MAX_FIELD_LEN],
-                     const char rows[][MAX_FIELDS][MAX_FIELD_LEN],
-                     int totalRows,
-                     int totalCols,
-                     int fieldIndex) {
-    if (fieldIndex < 0 || fieldIndex >= totalCols) {
-        printf("Índice fuera de rango.\n");
-        return;
-    }
-
-    int width = strlen(headers[fieldIndex]);
-    for (int r = 0; r < totalRows; ++r) {
-        int len = strlen(rows[r][fieldIndex]);
-        if (len > width) width = len;
-    }
-
-    printf("+-%.*s-+\n", width, "--------------------------------");
-    printf("| %-*s |\n", width, headers[fieldIndex]);
-    printf("+-%.*s-+\n", width, "--------------------------------");
-
-    for (int r = 0; r < totalRows; ++r)
-        printf("| %-*s |\n", width, rows[r][fieldIndex]);
-
-    printf("+-%.*s-+\n", width, "--------------------------------");
 }
 

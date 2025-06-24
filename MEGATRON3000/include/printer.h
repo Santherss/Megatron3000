@@ -1,26 +1,9 @@
-#ifndef PRINTER_H
-#define PRINTER_H
-
+#pragma once
 #include "query.h"
-#include <cstdio>
-#include <cstring>
 
-// Imprime todas las columnas de todas las filas
-void printTableAll(const char headers[][MAX_FIELD_LEN],
-                   const char rows[][MAX_FIELDS][MAX_FIELD_LEN],
-                   int totalRows, int totalCols);
+extern int lastColumnWidths[MAX_FIELDS];
+extern int lastNumCols;
 
-// Imprime solo una columna
-void printTableField(const char headers[][MAX_FIELD_LEN],
-                     const char rows[][MAX_FIELDS][MAX_FIELD_LEN],
-                     int totalRows, int totalCols, int fieldIndex);
-
-// Imprime solo columnas seleccionadas (por índices)
-void printTableSelected(const char headers[][MAX_FIELD_LEN],
-                        const char rows[][MAX_FIELDS][MAX_FIELD_LEN],
-                        int totalRows,
-                        const int* selectedIndices,
-                        int numSelected);
-
-#endif
+void printHeaders(const char headers[][MAX_FIELD_LEN], int numCols);
+void printRow(const char campos[][MAX_FIELD_LEN], int numCols, const int* indices, bool selectAll);
 
